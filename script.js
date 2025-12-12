@@ -4,6 +4,8 @@
 var map;
 var markers = [];
 var libraryData = [];
+var circle = null;
+
 var gu_center = {
     "강남구": [37.4968488, 127.0679394],
     "강동구": [37.5492994, 127.1464275],
@@ -31,159 +33,118 @@ var gu_center = {
     "중랑구": [37.5950497, 127.0957062]
 };
 
-
 // ================================
-// 페이지 시작 시 지도 생성
+// 페이지 시작
 // ================================
 window.onload = function () {
     initMap();
     getData();
 };
 
-
 // ================================
 // 지도 초기화
 // ================================
 function initMap() {
-    var container = document.getElementById("map");
-    var options = {
+    map = new kakao.maps.Map(document.getElementById("map"), {
         center: new kakao.maps.LatLng(37.5665, 126.9780),
         level: 7
-    };
-    map = new kakao.maps.Map(container, options);
+    });
 }
 
-
 // ================================
-// 서울시 도서관 API 데이터 불러오기
+// API 호출 (CORS 우회 + HTTPS)
 // ================================
 function getData() {
-    const serviceKey = "5562556d6279736d31303371487a5343"; // 교수님 제공 KEY
-    const url = `http://openapi.seoul.go.kr:8088/${serviceKey}/json/SeoulPublicLibraryInfo/1/1000/`;
+    const serviceKey = "5562556d6279736d31303371487a5343";
+    const apiUrl = `https://openapi.seoul.go.kr:8088/${serviceKey}/json/SeoulPublicLibraryInfo/1/1000/`;
 
-    fetch(url)
+    fetch(apiUrl)
         .then(res => res.json())
-        .then(json => {
-            libraryData = json.SeoulPublicLibraryInfo.row;
+        .then(data => {
+            libraryData = data.SeoulPublicLibraryInfo.row;
         })
-        .catch(err => console.log("API ERROR:", err));
+        .catch(err => alert("API 로딩 실패"));
 }
 
-
 // ================================
-// 검색 버튼 클릭
+// 검색
 // ================================
 function find() {
-    var gu = document.getElementById("gu").value;
-    var center = gu_center[gu];
+    const gu = document.getElementById("gu").value;
+    const center = gu_center[gu];
 
-    // 지도 이동
     map.setCenter(new kakao.maps.LatLng(center[0], center[1]));
     map.setLevel(6);
 
-    // 기존 마커 삭제
-    for (var i = 0; i < markers.length; i++) {
-        markers[i].setMap(null);
-    }
+    markers.forEach(m => m.setMap(null));
     markers = [];
 
-    // 원 그리기
-    var circle = new kakao.maps.Circle({
+    if (circle) circle.setMap(null);
+
+    circle = new kakao.maps.Circle({
         center: new kakao.maps.LatLng(center[0], center[1]),
         radius: 2000,
         strokeWeight: 3,
         strokeColor: '#FF0000',
-        strokeOpacity: 0.8,
         fillColor: '#FF6600',
-        fillOpacity: 0.2
+        fillOpacity: 0.25
     });
     circle.setMap(map);
 
-    // 필터링
-    var filtered = libraryData.filter(function (e) {
-        return e.CODE_VALUE === gu;
-    });
-
+    const filtered = libraryData.filter(e => e.CODE_VALUE === gu);
     updateList(filtered);
     updateMarkers(filtered);
 }
 
-
 // ================================
-// 오른쪽 목록 출력
+// 목록 출력
 // ================================
 function updateList(list) {
-    var div = document.getElementById("libraries");
+    const div = document.getElementById("libraries");
     div.innerHTML = "";
 
-    for (var i = 0; i < list.length; i++) {
-        var lib = list[i];
-
-        var box = document.createElement("div");
-        box.className = "p-2 mb-2 " + (i % 2 == 0 ? "custom-bg-even" : "custom-bg-odd");
-
-        box.innerHTML =
-            "<b>" + lib.LBRRY_NAME + "</b><br>" +
-            "전화: " + lib.TEL_NO + "<br>" +
-            "주소: " + lib.ADRES + "<br>" +
-            "위도: " + lib.XCNTS + ", 경도: " + lib.YDNTS + "<br>" +
-            "휴관일: " + lib.FDR_SCTN + "<br>" +
-            "<a href='" + lib.HMPG_URL + "' target='_blank'>" + lib.HMPG_URL + "</a><br><br>" +
-            "<button class='btn btn-sm btn-secondary' onclick=\"moveMarker(" + lib.XCNTS + "," + lib.YDNTS + ")\">위치</button>";
-
+    list.forEach((lib, i) => {
+        const box = document.createElement("div");
+        box.className = `p-2 mb-2 ${i % 2 === 0 ? "custom-bg-even" : "custom-bg-odd"}`;
+        box.innerHTML = `
+            <b>${lib.LBRRY_NAME}</b><br>
+            주소: ${lib.ADRES}<br>
+            전화: ${lib.TEL_NO}<br>
+            <button class="btn btn-sm btn-dark mt-1"
+                onclick="moveMarker(${lib.XCNTS}, ${lib.YDNTS})">위치</button>
+        `;
         div.appendChild(box);
-    }
+    });
 }
 
-
 // ================================
-// 마커 표시
+// 마커 + 정보창
 // ================================
 function updateMarkers(list) {
-    for (var i = 0; i < list.length; i++) {
-        var lib = list[i];
-
-        var marker = new kakao.maps.Marker({
+    list.forEach(lib => {
+        const marker = new kakao.maps.Marker({
             position: new kakao.maps.LatLng(lib.XCNTS, lib.YDNTS),
             map: map
         });
 
         markers.push(marker);
 
-        // InfoWindow
-        var iwContent =
-            "<div style='padding:5px; font-size:13px;'>" +
-            "<b>" + lib.LBRRY_NAME + "</b><br>" +
-            lib.ADRES +
-            "</div>";
-
-        var infowindow = new kakao.maps.InfoWindow({
-            content: iwContent
+        const infowindow = new kakao.maps.InfoWindow({
+            content: `<div style="padding:6px;font-size:13px;">
+                        <b>${lib.LBRRY_NAME}</b><br>${lib.ADRES}
+                      </div>`
         });
 
-        kakao.maps.event.addListener(marker, "click", makeClick(marker, infowindow));
-    }
+        kakao.maps.event.addListener(marker, 'click', () => {
+            infowindow.open(map, marker);
+        });
+    });
 }
-
-function makeClick(marker, infowindow) {
-    return function () {
-        infowindow.open(map, marker);
-    };
-}
-
 
 // ================================
-// 위치 버튼 기능
+// 위치 이동
 // ================================
 function moveMarker(x, y) {
     map.setCenter(new kakao.maps.LatLng(x, y));
     map.setLevel(5);
-}
-
-
-// ================================
-// 맨 위로 이동
-// ================================
-function go_top() {
-    window.scrollTo({ top: 0, behavior: "smooth" });
 }
